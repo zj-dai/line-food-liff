@@ -63,7 +63,8 @@
   .search .clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px;
     border: 0; border-radius: 50%; background: var(--soft); color: var(--brand); font-size: 14px; }
   .stats { font-size: 11px; color: var(--sub); text-align: center; margin-top: 16px; line-height: 1.6; white-space: pre-line; }
-  .notice { background: #F3D9C2; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+  .notice { background: #F3D9C2; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 10px;
+    white-space: pre-line; word-break: break-word; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -77,6 +78,7 @@
     <input id="q" type="search" enterkeyhint="search" maxlength="40" placeholder="🔍 搜尋店名找分店，例如 50嵐">
     <button type="button" class="clear hidden" id="clearQ">✕</button>
   </form>
+  <div class="chips" id="brands"></div>
   <div class="where" id="where">定位中…</div>
   <div class="chips" id="chips"></div>
 </div>
@@ -98,7 +100,7 @@ const ZOOM = { 500: 16, 1000: 15, 2000: 14, 3000: 13, 5000: 12 };
 const COLORS = ['#C8814A', '#E67E22', '#8E6E53', '#D35400', '#A0522D', '#6D8B74', '#B5651D', '#7D5A50'];
 
 const params = new URLSearchParams(location.search);
-const state = { type: params.get('type') || '', radius: 1000, q: params.get('q') || '', pos: null, data: null, idToken: null };
+const state = { type: params.get('type') || '', radius: 2000, q: params.get('q') || '', pos: null, data: null, idToken: null };
 let map, youLayer, pinLayer;
 const $ = id => document.getElementById(id);
 
@@ -160,6 +162,20 @@ function renderChips() {
   });
 }
 
+// ---------- 品牌快捷（最愛排前面），點了用店名找附近分店 ----------
+function renderBrands() {
+  const box = $('brands');
+  box.innerHTML = '';
+  const list = (state.data && state.data.brands) || [];
+  list.forEach(b => {
+    const on = state.q && state.q === b.name;
+    const chip = el('button', 'chip' + (on ? ' on' : ''), (b.fav ? '❤️ ' : '') + b.name);
+    chip.onclick = () => setQuery(on ? '' : b.name);
+    box.appendChild(chip);
+  });
+  box.classList.toggle('hidden', !list.length);
+}
+
 // ---------- 搜尋店名 ----------
 function setQuery(q) {
   state.q = q.trim();
@@ -210,6 +226,7 @@ function render() {
   const list = $('list');
   list.innerHTML = '';
   drawMap();
+  renderBrands();
   // Google 搜尋用量
   if (d.usage) $('where').textContent = '📍 已定位（誤差約 ' + state.pos.acc + ' 公尺）・Google 搜尋本月 ' + d.usage.used + '/' + d.usage.limit;
   if (d.blocked) list.appendChild(el('div', 'notice', d.blocked));
