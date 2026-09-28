@@ -77,7 +77,7 @@
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // ======== 設定：換成你自己的 ========
-const LIFF_ID = '請填入你的 LIFF ID';                 // 例如 1234567890-AbCdEfGh
+const LIFF_ID = '2011776049-LqJdKbxw';
 const API_URL = 'https://script.google.com/macros/s/AKfycbyTHYxwpB4fIH1LYFzYPT6JpnzP91gVqVHnDFU6ZTaeSKp56uTiOWt8Pqonz9UTNpNy/exec';
 // ===================================
 
@@ -201,7 +201,7 @@ function render() {
     return;
   }
   if (d.stores.length) {
-    list.appendChild(el('div', 'section', '⭐ 我的店家（' + d.stores.length + '）'));
+    list.appendChild(el('div', 'section', '⭐ 清單裡的店・含連鎖分店（' + d.stores.length + '）'));
     d.stores.forEach(s => list.appendChild(storeCard(s)));
   }
   if (d.places.length) {
@@ -226,23 +226,22 @@ function logoEl(name, url) {
 
 function storeCard(s) {
   const c = el('div', 'card');
-  c.id = 'store-' + s.id;
+  c.id = 'store-' + s.key;
   const head = el('div', 'head');
   head.appendChild(logoEl(s.name, s.logo));
   const info = el('div', 'grow');
   info.appendChild(el('div', 'name', s.name));
-  info.appendChild(el('div', 'meta', (s.type === '飲料' ? '🧋 飲料' : '🍱 餐點') + '・📍 ' + fmtDist(s.dist) + (s.fav ? '・❤️ 最愛' : '')));
+  info.appendChild(el('div', 'meta', (s.type === '飲料' ? '🧋 飲料' : '🍱 餐點') + '・📍 ' + fmtDist(s.dist) +
+    (s.branch ? '・連鎖分店' : '') + (s.fav ? '・❤️ 最愛' : '')));
   head.appendChild(info);
   const heart = el('button', 'heart', s.fav ? '❤️' : '🤍');
   heart.onclick = async () => {
     heart.disabled = true;
     try {
       const r = await api('fav', { store: s.id });
-      s.fav = r.fav;
-      heart.textContent = s.fav ? '❤️' : '🤍';
-      toast(s.fav ? '❤️ 已加入最愛' : '🤍 已從最愛移除');
-    } catch (e) { toast('⚠️ ' + e.message); }
-    heart.disabled = false;
+      toast(r.fav ? '❤️ 已加入最愛' + (s.branch ? '（' + s.brand + ' 所有分店）' : '') : '🤍 已從最愛移除');
+      load();   // 重新排序；同地點有快取，不會扣 Google 次數
+    } catch (e) { toast('⚠️ ' + e.message); heart.disabled = false; }
   };
   head.appendChild(heart);
   c.appendChild(head);
@@ -263,7 +262,7 @@ function storeCard(s) {
   if (canSend()) {
     addBtn(btns, '👥 在這個聊天室開團', 'wide', async () => {
       try {
-        await liff.sendMessages([{ type: 'text', text: '開團 ' + s.name }]);
+        await liff.sendMessages([{ type: 'text', text: '開團 ' + s.brand }]);
         liff.closeWindow();
       } catch (e) { toast('⚠️ 無法傳訊息：' + e.message); }
     });
@@ -294,7 +293,7 @@ function placeCard(p) {
 }
 
 async function importPlace(p, btns, add) {
-  let type = state.type;
+  let type = state.type || p.kind;   // kind：Google 是用飲料還是餐點搜到的
   if (!type) {
     // 還沒選類型：換成兩顆按鈕讓使用者選
     add.remove();
@@ -335,7 +334,7 @@ function drawMap() {
   L.circleMarker([lat, lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#2F80ED', fillOpacity: 1 })
     .addTo(youLayer).bindTooltip('你在這裡');
   pinLayer.clearLayers();
-  state.data.stores.forEach(s => pin(s.lat, s.lng, s.fav ? '❤️' : (s.type === '飲料' ? '🧋' : '🍱'), s.name, 'store-' + s.id));
+  state.data.stores.forEach(s => pin(s.lat, s.lng, s.fav ? '❤️' : (s.type === '飲料' ? '🧋' : '🍱'), s.name, 'store-' + s.key));
   state.data.places.forEach(p => pin(p.lat, p.lng, '📍', p.name, 'place-' + p.pid));
 }
 function pin(lat, lng, emoji, name, cardId) {
