@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>附近的店</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #FBF4EC; --card: #FFFFFF; --text: #5B3A1E; --sub: #8C7B6B;
+    --brand: #9C6333; --soft: #FBF1E6; --line: #E6CFB6; --accent: #E67E22;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; font-size: 15px; }
+  button { font-family: inherit; }
+  .top { position: sticky; top: 0; z-index: 1000; background: var(--bg); padding: 12px 16px 8px; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  h1 { font-size: 18px; margin: 0; flex: 1; }
+  .icon-btn { border: 1px solid var(--line); background: var(--soft); color: var(--brand);
+    border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 700; }
+  .where { font-size: 12px; color: var(--sub); margin-top: 4px; min-height: 1em; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; margin-top: 8px; padding-bottom: 2px; }
+  .chip { flex: none; border: 1px solid var(--line); background: var(--card); color: var(--brand);
+    border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+  .chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .sep { width: 1px; background: var(--line); flex: none; margin: 4px 2px; }
+  #map { height: 38vh; min-height: 220px; margin: 0 16px; border-radius: 14px; border: 1px solid var(--line); }
+  .list { padding: 12px 16px 40px; }
+  .section { font-size: 13px; font-weight: 700; color: var(--sub); margin: 14px 2px 8px; }
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(91,58,30,.08); border: 2px solid transparent; }
+  .card.hl { border-color: var(--accent); }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .logo { width: 44px; height: 44px; border-radius: 50%; flex: none; overflow: hidden; display: flex;
+    align-items: center; justify-content: center; color: #fff; font-weight: 700; border: 1px solid #EEE3D8; }
+  .logo img { width: 100%; height: 100%; object-fit: cover; }
+  .name { font-weight: 700; font-size: 16px; }
+  .meta { font-size: 12px; color: var(--sub); margin-top: 2px; }
+  .grow { flex: 1; min-width: 0; }
+  .heart { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--soft);
+    font-size: 16px; flex: none; }
+  .addr { font-size: 13px; color: var(--sub); margin-top: 8px; }
+  .photo { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px;
+    margin-top: 10px; border: 1px solid #EEE3D8; }
+  .btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+  .btn { border: 1px solid var(--line); background: var(--soft); color: var(--brand); border-radius: 10px;
+    padding: 9px 4px; font-size: 13px; font-weight: 700; text-align: center; }
+  .btn.main { grid-column: 1 / -1; background: var(--brand); border-color: var(--brand); color: #fff; font-size: 15px; }
+  .btn.wide { grid-column: 1 / -1; }
+  .g { font-size: 11px; font-weight: 700; color: #4285F4; }
+  .msg { text-align: center; color: var(--sub); padding: 30px 10px; line-height: 1.7; }
+  .msg b { color: var(--text); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(40,25,15,.9);
+    color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 2000; opacity: 0;
+    transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; }
+  .toast.show { opacity: 1; }
+  .pin { font-size: 22px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="row">
+    <h1>📍 附近的店</h1>
+    <button class="icon-btn" id="relocate">重新定位</button>
+  </div>
+  <div class="where" id="where">定位中…</div>
+  <div class="chips" id="chips"></div>
+</div>
+<div id="map"></div>
+<div class="list" id="list"><div class="msg">📡 正在取得你的位置…</div></div>
+<div class="toast" id="toast"></div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ======== 設定：換成你自己的 ========
+const LIFF_ID = '請填入你的 LIFF ID';                 // 例如 1234567890-AbCdEfGh
+const API_URL = '請填入 GAS 網頁應用程式網址';          // https://script.google.com/macros/s/…/exec
+// ===================================
+
+const TYPES = [['', '全部'], ['飲料', '🧋 飲料'], ['餐點', '🍱 餐點']];
+const RADII = [[500, '500m'], [1000, '1km'], [2000, '2km'], [3000, '3km']];
+const ZOOM = { 500: 16, 1000: 15, 2000: 14, 3000: 13 };
+const COLORS = ['#C8814A', '#E67E22', '#8E6E53', '#D35400', '#A0522D', '#6D8B74', '#B5651D', '#7D5A50'];
+
+const params = new URLSearchParams(location.search);
+const state = { type: params.get('type') || '', radius: 1000, pos: null, data: null, idToken: null };
+let map, youLayer, pinLayer;
+const $ = id => document.getElementById(id);
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function toast(text) {
+  const t = $('toast');
+  t.textContent = text;
+  t.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+function fmtDist(m) { return m < 1000 ? m + ' 公尺' : (m / 1000).toFixed(1) + ' 公里'; }
+function colorOf(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 997;
+  return COLORS[h % COLORS.length];
+}
+function inLine() { return window.liff && liff.isInClient && liff.isInClient(); }
+function open(url, external) {
+  if (inLine()) liff.openWindow({ url: url, external: !!external });
+  else window.open(url, '_blank');
+}
+/** 在聊天室裡開團：以使用者身分送出「開團 店名」，由機器人處理 */
+function canSend() {
+  const c = inLine() && liff.getContext();
+  return !!(c && ['utou', 'group', 'room'].indexOf(c.type) >= 0);
+}
+
+async function api(name, payload) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // 不觸發 CORS 預檢
+    body: JSON.stringify(Object.assign({ api: name, idToken: state.idToken }, payload)),
+  });
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || '發生錯誤');
+  return j.data;
+}
+
+// ---------- 篩選 ----------
+function renderChips() {
+  const box = $('chips');
+  box.innerHTML = '';
+  TYPES.forEach(([v, label]) => {
+    const b = el('button', 'chip' + (state.type === v ? ' on' : ''), label);
+    b.onclick = () => { state.type = v; renderChips(); load(); };
+    box.appendChild(b);
+  });
+  box.appendChild(el('span', 'sep'));
+  RADII.forEach(([v, label]) => {
+    const b = el('button', 'chip' + (state.radius === v ? ' on' : ''), label);
+    b.onclick = () => { state.radius = v; renderChips(); load(); };
+    box.appendChild(b);
+  });
+}
+
+// ---------- 定位 ----------
+function locate() {
+  $('where').textContent = '定位中…';
+  if (!navigator.geolocation) return locateFailed('這個瀏覽器不支援定位');
+  navigator.geolocation.getCurrentPosition(
+    p => {
+      state.pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) };
+      $('where').textContent = '📍 已定位（誤差約 ' + state.pos.acc + ' 公尺）';
+      load();
+    },
+    e => locateFailed(e.code === 1 ? '你沒有允許定位' : '暫時抓不到位置'),
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+}
+function locateFailed(reason) {
+  $('where').textContent = '⚠️ ' + reason;
+  const list = $('list');
+  list.innerHTML = '';
+  const m = el('div', 'msg');
+  m.innerHTML = '<b>' + reason + '</b><br>請到手機「設定 → LINE → 位置」允許定位，再按「重新定位」<br>' +
+    '或關掉這頁，在聊天室點「📍 傳送位置」';
+  list.appendChild(m);
+}
+
+// ---------- 載入與畫面 ----------
+async function load() {
+  if (!state.pos) return;
+  $('list').innerHTML = '<div class="msg">🔍 搜尋附近的店…</div>';
+  try {
+    state.data = await api('nearby', { lat: state.pos.lat, lng: state.pos.lng, type: state.type, radius: state.radius });
+    render();
+  } catch (e) {
+    $('list').innerHTML = '';
+    $('list').appendChild(el('div', 'msg', '⚠️ ' + e.message));
+  }
+}
+
+function render() {
+  const d = state.data;
+  const list = $('list');
+  list.innerHTML = '';
+  drawMap();
+  if (!d.stores.length && !d.places.length) {
+    const m = el('div', 'msg');
+    m.innerHTML = '<b>' + fmtDist(state.radius) + ' 內沒找到店家 😢</b><br>試試把範圍調大，<br>或在聊天室用「新增店家」加入附近的店' +
+      (d.hasPlacesKey ? '' : '<br><small>（只有填了地址的店家會出現在這裡）</small>');
+    list.appendChild(m);
+    return;
+  }
+  if (d.stores.length) {
+    list.appendChild(el('div', 'section', '⭐ 我的店家（' + d.stores.length + '）'));
+    d.stores.forEach(s => list.appendChild(storeCard(s)));
+  }
+  if (d.places.length) {
+    list.appendChild(el('div', 'section', '🗺 Google 地圖找到的（' + d.places.length + '）'));
+    d.places.forEach(p => list.appendChild(placeCard(p)));
+  }
+}
+
+function logoEl(name, url) {
+  const box = el('div', 'logo');
+  if (url) {
+    const img = el('img');
+    img.src = url;
+    box.appendChild(img);
+    box.style.background = '#fff';
+  } else {
+    box.textContent = (name.match(/^[A-Za-z0-9]{1,2}/) || [Array.from(name)[0]])[0];
+    box.style.background = colorOf(name);
+  }
+  return box;
+}
+
+function storeCard(s) {
+  const c = el('div', 'card');
+  c.id = 'store-' + s.id;
+  const head = el('div', 'head');
+  head.appendChild(logoEl(s.name, s.logo));
+  const info = el('div', 'grow');
+  info.appendChild(el('div', 'name', s.name));
+  info.appendChild(el('div', 'meta', (s.type === '飲料' ? '🧋 飲料' : '🍱 餐點') + '・📍 ' + fmtDist(s.dist) + (s.fav ? '・❤️ 最愛' : '')));
+  head.appendChild(info);
+  const heart = el('button', 'heart', s.fav ? '❤️' : '🤍');
+  heart.onclick = async () => {
+    heart.disabled = true;
+    try {
+      const r = await api('fav', { store: s.id });
+      s.fav = r.fav;
+      heart.textContent = s.fav ? '❤️' : '🤍';
+      toast(s.fav ? '❤️ 已加入最愛' : '🤍 已從最愛移除');
+    } catch (e) { toast('⚠️ ' + e.message); }
+    heart.disabled = false;
+  };
+  head.appendChild(heart);
+  c.appendChild(head);
+
+  if (s.addr) c.appendChild(el('div', 'addr', s.addr));
+  if (s.photo) {
+    const img = el('img', 'photo');
+    img.src = s.photo;
+    img.loading = 'lazy';
+    img.onclick = () => open(s.photoView);
+    c.appendChild(img);
+  }
+  const btns = el('div', 'btns');
+  if (s.order) addBtn(btns, '🛒 線上點餐', 'main', () => open(s.order));
+  addBtn(btns, '📋 菜單', '', () => open(s.menu));
+  addBtn(btns, '💬 推薦', '', () => open(s.review));
+  addBtn(btns, '🗺 導航', '', () => open(s.maps, true));
+  if (canSend()) {
+    addBtn(btns, '👥 在這個聊天室開團', 'wide', async () => {
+      try {
+        await liff.sendMessages([{ type: 'text', text: '開團 ' + s.name }]);
+        liff.closeWindow();
+      } catch (e) { toast('⚠️ 無法傳訊息：' + e.message); }
+    });
+  }
+  c.appendChild(btns);
+  return c;
+}
+
+function placeCard(p) {
+  const c = el('div', 'card');
+  c.id = 'place-' + p.pid;
+  const head = el('div', 'head');
+  head.appendChild(logoEl(p.name, ''));
+  const info = el('div', 'grow');
+  info.appendChild(el('div', 'g', 'Google 地圖'));
+  info.appendChild(el('div', 'name', p.name));
+  info.appendChild(el('div', 'meta', '📍 ' + fmtDist(p.dist) + (p.rating ? '・⭐ ' + p.rating : '') +
+    (p.openNow === true ? '・🟢 營業中' : p.openNow === false ? '・🔴 休息中' : '')));
+  head.appendChild(info);
+  c.appendChild(head);
+  if (p.addr) c.appendChild(el('div', 'addr', p.addr));
+  const btns = el('div', 'btns');
+  addBtn(btns, '💬 推薦', '', () => open(p.review));
+  addBtn(btns, '🗺 導航', '', () => open(p.maps, true));
+  const add = addBtn(btns, '➕ 加入', '', () => importPlace(p, btns, add));
+  c.appendChild(btns);
+  return c;
+}
+
+async function importPlace(p, btns, add) {
+  let type = state.type;
+  if (!type) {
+    // 還沒選類型：換成兩顆按鈕讓使用者選
+    add.remove();
+    ['飲料', '餐點'].forEach(t => addBtn(btns, t === '飲料' ? '➕ 加入為飲料' : '➕ 加入為餐點', 'wide', () => doImport(p, t)));
+    return;
+  }
+  doImport(p, type);
+}
+async function doImport(p, type) {
+  try {
+    await api('import', { pid: p.pid, type: type, lat: state.pos.lat, lng: state.pos.lng });
+    toast('✅ 已加入「' + p.name + '」');
+    load();
+  } catch (e) { toast('⚠️ ' + e.message); }
+}
+
+function addBtn(box, label, cls, onclick) {
+  const b = el('button', 'btn' + (cls ? ' ' + cls : ''), label);
+  b.onclick = onclick;
+  box.appendChild(b);
+  return b;
+}
+
+// ---------- 地圖 ----------
+function drawMap() {
+  const { lat, lng } = state.pos;
+  if (!map) {
+    map = L.map('map', { zoomControl: false, attributionControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© OpenStreetMap',
+    }).addTo(map);
+    youLayer = L.layerGroup().addTo(map);
+    pinLayer = L.layerGroup().addTo(map);
+  }
+  map.setView([lat, lng], ZOOM[state.radius] || 15);
+  youLayer.clearLayers();
+  L.circle([lat, lng], { radius: state.radius, color: '#9C6333', weight: 1, fillOpacity: 0.05 }).addTo(youLayer);
+  L.circleMarker([lat, lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#2F80ED', fillOpacity: 1 })
+    .addTo(youLayer).bindTooltip('你在這裡');
+  pinLayer.clearLayers();
+  state.data.stores.forEach(s => pin(s.lat, s.lng, s.fav ? '❤️' : (s.type === '飲料' ? '🧋' : '🍱'), s.name, 'store-' + s.id));
+  state.data.places.forEach(p => pin(p.lat, p.lng, '📍', p.name, 'place-' + p.pid));
+}
+function pin(lat, lng, emoji, name, cardId) {
+  const icon = L.divIcon({ className: '', html: '<div class="pin">' + emoji + '</div>', iconSize: [24, 24], iconAnchor: [12, 22] });
+  L.marker([lat, lng], { icon: icon }).addTo(pinLayer).bindTooltip(name).on('click', () => {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    document.querySelectorAll('.card.hl').forEach(x => x.classList.remove('hl'));
+    card.classList.add('hl');
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
+
+// ---------- 啟動 ----------
+async function main() {
+  renderChips();
+  $('relocate').onclick = locate;
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    // init 之後 LIFF 會把 liff.line.me 帶來的參數放回網址
+    const p = new URLSearchParams(location.search);
+    if (p.get('type') !== null) { state.type = p.get('type'); renderChips(); }
+    if (liff.isLoggedIn()) state.idToken = liff.getIDToken();
+  } catch (e) {
+    console.warn('LIFF 初始化失敗，改用一般網頁模式', e);
+  }
+  locate();
+}
+main();
+</script>
+</body>
+</html>
