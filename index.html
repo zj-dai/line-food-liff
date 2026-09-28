@@ -56,6 +56,13 @@
     transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; }
   .toast.show { opacity: 1; }
   .pin { font-size: 22px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+  .search { position: relative; margin-top: 8px; }
+  .search input { width: 100%; font-size: 16px; padding: 10px 40px 10px 14px; border: 1px solid var(--line);
+    border-radius: 999px; background: var(--card); color: var(--text); -webkit-appearance: none; }
+  .search input:focus { outline: 2px solid #C8814A; border-color: transparent; }
+  .search .clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px;
+    border: 0; border-radius: 50%; background: var(--soft); color: var(--brand); font-size: 14px; }
+  .stats { font-size: 11px; color: var(--sub); text-align: center; margin-top: 16px; line-height: 1.6; white-space: pre-line; }
   .notice { background: #F3D9C2; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
   .hidden { display: none !important; }
 </style>
@@ -66,6 +73,10 @@
     <h1>📍 附近的店</h1>
     <button class="icon-btn" id="relocate">重新定位</button>
   </div>
+  <form class="search" id="searchForm">
+    <input id="q" type="search" enterkeyhint="search" maxlength="40" placeholder="🔍 搜尋店名找分店，例如 50嵐">
+    <button type="button" class="clear hidden" id="clearQ">✕</button>
+  </form>
   <div class="where" id="where">定位中…</div>
   <div class="chips" id="chips"></div>
 </div>
@@ -83,11 +94,11 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbyTHYxwpB4fIH1LYFzYPT6J
 
 const TYPES = [['', '全部'], ['飲料', '🧋 飲料'], ['餐點', '🍱 餐點']];
 const RADII = [[500, '500m'], [1000, '1km'], [2000, '2km'], [3000, '3km']];
-const ZOOM = { 500: 16, 1000: 15, 2000: 14, 3000: 13 };
+const ZOOM = { 500: 16, 1000: 15, 2000: 14, 3000: 13, 5000: 12 };
 const COLORS = ['#C8814A', '#E67E22', '#8E6E53', '#D35400', '#A0522D', '#6D8B74', '#B5651D', '#7D5A50'];
 
 const params = new URLSearchParams(location.search);
-const state = { type: params.get('type') || '', radius: 1000, pos: null, data: null, idToken: null };
+const state = { type: params.get('type') || '', radius: 1000, q: params.get('q') || '', pos: null, data: null, idToken: null };
 let map, youLayer, pinLayer;
 const $ = id => document.getElementById(id);
 
@@ -137,16 +148,25 @@ function renderChips() {
   const box = $('chips');
   box.innerHTML = '';
   TYPES.forEach(([v, label]) => {
-    const b = el('button', 'chip' + (state.type === v ? ' on' : ''), label);
-    b.onclick = () => { state.type = v; renderChips(); load(); };
+    const b = el('button', 'chip' + (state.type === v && !state.q ? ' on' : ''), label);
+    b.onclick = () => { state.type = v; setQuery(''); };
     box.appendChild(b);
   });
   box.appendChild(el('span', 'sep'));
   RADII.forEach(([v, label]) => {
-    const b = el('button', 'chip' + (state.radius === v ? ' on' : ''), label);
-    b.onclick = () => { state.radius = v; renderChips(); load(); };
+    const b = el('button', 'chip' + (state.radius === v && !state.q ? ' on' : ''), label);
+    b.onclick = () => { state.radius = v; setQuery(''); };
     box.appendChild(b);
   });
+}
+
+// ---------- 搜尋店名 ----------
+function setQuery(q) {
+  state.q = q.trim();
+  $('q').value = state.q;
+  $('clearQ').classList.toggle('hidden', !state.q);
+  renderChips();
+  load();
 }
 
 // ---------- 定位 ----------
@@ -175,9 +195,9 @@ function locateFailed(reason) {
 // ---------- 載入與畫面 ----------
 async function load() {
   if (!state.pos) return;
-  $('list').innerHTML = '<div class="msg">🔍 搜尋附近的店…</div>';
+  $('list').innerHTML = '<div class="msg">🔍 ' + (state.q ? '搜尋附近的「' + state.q.replace(/</g, '') + '」…' : '搜尋附近的店…') + '</div>';
   try {
-    state.data = await api('nearby', { lat: state.pos.lat, lng: state.pos.lng, type: state.type, radius: state.radius });
+    state.data = await api('nearby', { lat: state.pos.lat, lng: state.pos.lng, type: state.q ? '' : state.type, radius: state.radius, q: state.q });
     render();
   } catch (e) {
     $('list').innerHTML = '';
@@ -195,18 +215,26 @@ function render() {
   if (d.blocked) list.appendChild(el('div', 'notice', d.blocked));
   if (!d.stores.length && !d.places.length) {
     const m = el('div', 'msg');
-    m.innerHTML = '<b>' + fmtDist(state.radius) + ' 內沒找到店家 😢</b><br>試試把範圍調大，<br>或在聊天室用「新增店家」加入附近的店' +
+    const what = d.q ? '「' + d.q + '」' : '店家';
+    m.innerHTML = '<b>' + fmtDist(d.radius) + ' 內沒找到' + what.replace(/</g, '') + ' 😢</b><br>' +
+      (d.q ? '換個關鍵字試試' : '試試把範圍調大，或上方搜尋店名') +
       (d.hasPlacesKey ? '' : '<br><small>（只有填了地址的店家會出現在這裡）</small>');
     list.appendChild(m);
-    return;
+  } else {
+    if (d.stores.length) {
+      list.appendChild(el('div', 'section', (d.q ? '📍「' + d.q + '」附近的分店' : '⭐ 清單裡的店・含連鎖分店') + '（' + d.stores.length + '）'));
+      d.stores.forEach(s => list.appendChild(storeCard(s)));
+    }
+    if (d.places.length) {
+      list.appendChild(el('div', 'section', '🗺 Google 地圖找到的（' + d.places.length + '）'));
+      d.places.forEach(p => list.appendChild(placeCard(p)));
+    }
   }
-  if (d.stores.length) {
-    list.appendChild(el('div', 'section', '⭐ 清單裡的店・含連鎖分店（' + d.stores.length + '）'));
-    d.stores.forEach(s => list.appendChild(storeCard(s)));
-  }
-  if (d.places.length) {
-    list.appendChild(el('div', 'section', '🗺 Google 地圖找到的（' + d.places.length + '）'));
-    d.places.forEach(p => list.appendChild(placeCard(p)));
+  // 每個關鍵字 Google 回了幾間；有快取時註明「沒扣次數」
+  if (d.stats && d.stats.length) {
+    const cached = d.stats.every(s => s.cached);
+    list.appendChild(el('div', 'stats', 'Google：' + d.stats.map(s => '「' + s.label + '」' + s.count + ' 間（範圍內 ' + s.near + '）').join('、') +
+      (cached ? '\n♻️ 10 分鐘內同地點查過，用上次的結果，沒有扣次數' : '')));
   }
 }
 
@@ -328,9 +356,10 @@ function drawMap() {
     youLayer = L.layerGroup().addTo(map);
     pinLayer = L.layerGroup().addTo(map);
   }
-  map.setView([lat, lng], ZOOM[state.radius] || 15);
+  const radius = state.data.radius || state.radius;
+  map.setView([lat, lng], ZOOM[radius] || 15);
   youLayer.clearLayers();
-  L.circle([lat, lng], { radius: state.radius, color: '#9C6333', weight: 1, fillOpacity: 0.05 }).addTo(youLayer);
+  L.circle([lat, lng], { radius: radius, color: '#9C6333', weight: 1, fillOpacity: 0.05 }).addTo(youLayer);
   L.circleMarker([lat, lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#2F80ED', fillOpacity: 1 })
     .addTo(youLayer).bindTooltip('你在這裡');
   pinLayer.clearLayers();
@@ -352,11 +381,17 @@ function pin(lat, lng, emoji, name, cardId) {
 async function main() {
   renderChips();
   $('relocate').onclick = locate;
+  $('searchForm').onsubmit = e => { e.preventDefault(); $('q').blur(); setQuery($('q').value); };
+  $('clearQ').onclick = () => setQuery('');
   try {
     await liff.init({ liffId: LIFF_ID });
     // init 之後 LIFF 會把 liff.line.me 帶來的參數放回網址
     const p = new URLSearchParams(location.search);
-    if (p.get('type') !== null) { state.type = p.get('type'); renderChips(); }
+    if (p.get('type') !== null) state.type = p.get('type');
+    if (p.get('q') !== null) state.q = p.get('q');
+    $('q').value = state.q;
+    $('clearQ').classList.toggle('hidden', !state.q);
+    renderChips();
     if (liff.isLoggedIn()) state.idToken = liff.getIDToken();
   } catch (e) {
     console.warn('LIFF 初始化失敗，改用一般網頁模式', e);
