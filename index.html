@@ -134,15 +134,26 @@ function canSend() {
   return !!(c && ['utou', 'group', 'room'].indexOf(c.type) >= 0);
 }
 
-async function api(name, payload) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // 不觸發 CORS 預檢
-    body: JSON.stringify(Object.assign({ api: name, idToken: state.idToken }, payload)),
-  });
-  const j = await res.json();
-  if (!j.ok) throw new Error(j.error || '發生錯誤');
-  return j.data;
+/** 呼叫 GAS；逾時會中斷，避免畫面一直轉圈 */
+async function api(name, payload, timeoutMs) {
+  const ctrl = window.AbortController ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs || 30000) : null;
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // 不觸發 CORS 預檢
+      body: JSON.stringify(Object.assign({ api: name, idToken: state.idToken }, payload)),
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || '發生錯誤');
+    return j.data;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('連線逾時，伺服器可能正在啟動');
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // ---------- 篩選 ----------
@@ -209,15 +220,36 @@ function locateFailed(reason) {
 }
 
 // ---------- 載入與畫面 ----------
-async function load() {
+let loadSeq = 0;
+async function load(retried) {
   if (!state.pos) return;
-  $('list').innerHTML = '<div class="msg">🔍 ' + (state.q ? '搜尋附近的「' + state.q.replace(/</g, '') + '」…' : '搜尋附近的店…') + '</div>';
+  if (state.ready) await state.ready;   // 要等 LIFF 登入好，才帶得到身分
+  const seq = ++loadSeq;   // 快速切換篩選時，只採用最後一次的結果
+  const what = state.q ? '搜尋附近的「' + state.q.replace(/</g, '') + '」…' : '搜尋附近的店…';
+  $('list').innerHTML = '<div class="msg">🔍 ' + what + '</div>';
+  // 超過 6 秒還沒好，告訴使用者在等什麼
+  const slow = setTimeout(() => {
+    if (seq === loadSeq) $('list').innerHTML = '<div class="msg">🔍 ' + what + '<br><small>第一次打開要等伺服器啟動，約 10 秒</small></div>';
+  }, 6000);
   try {
-    state.data = await api('nearby', { lat: state.pos.lat, lng: state.pos.lng, type: state.q ? '' : state.type, radius: state.radius, q: state.q });
+    const data = await api('nearby', { lat: state.pos.lat, lng: state.pos.lng, type: state.q ? '' : state.type, radius: state.radius, q: state.q });
+    if (seq !== loadSeq) return;
+    state.data = data;
     render();
   } catch (e) {
-    $('list').innerHTML = '';
-    $('list').appendChild(el('div', 'msg', '⚠️ ' + e.message));
+    if (seq !== loadSeq) return;
+    if (!retried) return load(true);   // 冷啟動逾時很常見，自動重試一次
+    const list = $('list');
+    list.innerHTML = '';
+    const m = el('div', 'msg', '⚠️ ' + e.message);
+    const again = el('button', 'icon-btn', '🔄 重試');
+    again.style.marginTop = '12px';
+    again.onclick = () => load();
+    m.appendChild(el('br'));
+    m.appendChild(again);
+    list.appendChild(m);
+  } finally {
+    clearTimeout(slow);
   }
 }
 
@@ -395,11 +427,7 @@ function pin(lat, lng, emoji, name, cardId) {
 }
 
 // ---------- 啟動 ----------
-async function main() {
-  renderChips();
-  $('relocate').onclick = locate;
-  $('searchForm').onsubmit = e => { e.preventDefault(); $('q').blur(); setQuery($('q').value); };
-  $('clearQ').onclick = () => setQuery('');
+async function initLiff() {
   try {
     await liff.init({ liffId: LIFF_ID });
     // init 之後 LIFF 會把 liff.line.me 帶來的參數放回網址
@@ -413,6 +441,16 @@ async function main() {
   } catch (e) {
     console.warn('LIFF 初始化失敗，改用一般網頁模式', e);
   }
+}
+
+function main() {
+  renderChips();
+  $('relocate').onclick = locate;
+  $('searchForm').onsubmit = e => { e.preventDefault(); $('q').blur(); setQuery($('q').value); };
+  $('clearQ').onclick = () => setQuery('');
+  // 三件事同時進行：叫醒 GAS、LIFF 初始化、手機定位；定位好之後等 LIFF 好了才載入
+  api('ping', {}, 30000).catch(() => {});
+  state.ready = initLiff();
   locate();
 }
 main();
