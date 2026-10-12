@@ -52,7 +52,11 @@
   .g { font-size: 11px; font-weight: 700; color: #4285F4; }
   .msg { text-align: center; color: var(--sub); padding: 30px 10px; line-height: 1.7; }
   .msg b { color: var(--text); }
-  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(40,25,15,.9);
+  .fab { position: fixed; right: 16px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 1500; border: 0;
+    border-radius: 999px; padding: 12px 18px; background: var(--brand); color: #fff; font-size: 15px; font-weight: 700;
+    box-shadow: 0 3px 10px rgba(91,58,30,.3); }
+  .card.pick { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(230,126,34,.25); }
+  .toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: rgba(40,25,15,.9);
     color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 14px; z-index: 2000; opacity: 0;
     transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; }
   .toast.show { opacity: 1; }
@@ -73,6 +77,7 @@
 <div class="top">
   <div class="row">
     <h1>📍 附近的店</h1>
+    <button class="icon-btn" id="dice">🎲 抽一間</button>
     <button class="icon-btn" id="relocate">重新定位</button>
   </div>
   <form class="search" id="searchForm">
@@ -86,6 +91,7 @@
 <div id="map"></div>
 <div class="list" id="list"><div class="msg">📡 正在取得你的位置…</div></div>
 <div class="toast" id="toast"></div>
+<button class="fab hidden" id="again">🎲 再抽一次</button>
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -101,7 +107,8 @@ const ZOOM = { 500: 16, 1000: 15, 2000: 14, 3000: 13, 5000: 12 };
 const COLORS = ['#C8814A', '#E67E22', '#8E6E53', '#D35400', '#A0522D', '#6D8B74', '#B5651D', '#7D5A50'];
 
 const params = new URLSearchParams(location.search);
-const state = { type: params.get('type') || '', radius: 2000, q: params.get('q') || '', pos: null, data: null, idToken: null };
+const state = { type: params.get('type') || '', radius: 2000, q: params.get('q') || '', random: params.get('random') === '1',
+  pos: null, data: null, idToken: null, lastPick: '' };
 let map, youLayer, pinLayer;
 const $ = id => document.getElementById(id);
 
@@ -260,6 +267,7 @@ function render() {
   list.innerHTML = '';
   drawMap();
   renderBrands();
+  if (state.random) setTimeout(pickRandom, 50);
   // Google 搜尋用量
   if (d.usage) $('where').textContent = '📍 已定位（誤差約 ' + state.pos.acc + ' 公尺）・Google 搜尋本月 ' + d.usage.used + '/' + d.usage.limit;
   if (d.blocked) list.appendChild(el('div', 'notice', d.blocked));
@@ -433,6 +441,27 @@ function pin(lat, lng, emoji, name, cardId) {
   });
 }
 
+// ---------- 隨機抽一間 ----------
+function pickRandom() {
+  const d = state.data;
+  if (!d) return;
+  $('again').classList.toggle('hidden', !state.random);
+  const pool = d.stores.map(s => ({ id: 'store-' + s.key, name: s.name, lat: s.lat, lng: s.lng }))
+    .concat(d.places.map(p => ({ id: 'place-' + p.pid, name: p.name, lat: p.lat, lng: p.lng })));
+  if (!pool.length) { toast('附近沒有可以抽的店，試試把範圍調大'); return; }
+  const choices = pool.length > 1 ? pool.filter(c => c.id !== state.lastPick) : pool;
+  const pick = choices[Math.floor(Math.random() * choices.length)];
+  state.lastPick = pick.id;
+  document.querySelectorAll('.card.pick, .card.hl').forEach(x => x.classList.remove('pick', 'hl'));
+  const card = document.getElementById(pick.id);
+  if (card) {
+    card.classList.add('pick');
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  if (map && isFinite(pick.lat)) map.flyTo([pick.lat, pick.lng], 17, { duration: 0.6 });
+  toast('🎲 就決定是：' + pick.name + '（從 ' + pool.length + ' 間抽）');
+}
+
 // ---------- 啟動 ----------
 async function initLiff() {
   try {
@@ -441,6 +470,7 @@ async function initLiff() {
     const p = new URLSearchParams(location.search);
     if (p.get('type') !== null) state.type = p.get('type');
     if (p.get('q') !== null) state.q = p.get('q');
+    if (p.get('random') === '1') state.random = true;
     $('q').value = state.q;
     $('clearQ').classList.toggle('hidden', !state.q);
     renderChips();
@@ -453,6 +483,8 @@ async function initLiff() {
 function main() {
   renderChips();
   $('relocate').onclick = locate;
+  $('dice').onclick = () => { state.random = true; state.data ? pickRandom() : toast('還在搜尋，等一下再抽'); };
+  $('again').onclick = pickRandom;
   $('searchForm').onsubmit = e => { e.preventDefault(); $('q').blur(); setQuery($('q').value); };
   $('clearQ').onclick = () => setQuery('');
   // 三件事同時進行：叫醒 GAS、LIFF 初始化、手機定位；定位好之後等 LIFF 好了才載入
