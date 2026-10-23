@@ -76,7 +76,7 @@
 <body>
 <div class="top">
   <div class="row">
-    <h1>📍 附近的店</h1>
+    <h1 id="title">📍 附近的店</h1>
     <button class="icon-btn" id="dice">🎲 抽一間</button>
     <button class="icon-btn" id="relocate">重新定位</button>
   </div>
@@ -446,8 +446,8 @@ function pickRandom() {
   const d = state.data;
   if (!d) return;
   $('again').classList.toggle('hidden', !state.random);
-  const pool = d.stores.map(s => ({ id: 'store-' + s.key, name: s.name, lat: s.lat, lng: s.lng }))
-    .concat(d.places.map(p => ({ id: 'place-' + p.pid, name: p.name, lat: p.lat, lng: p.lng })));
+  const pool = d.stores.map(s => ({ id: 'store-' + s.key, name: s.name, lat: s.lat, lng: s.lng, dist: s.dist }))
+    .concat(d.places.map(p => ({ id: 'place-' + p.pid, name: p.name, lat: p.lat, lng: p.lng, dist: p.dist })));
   if (!pool.length) { toast('附近沒有可以抽的店，試試把範圍調大'); return; }
   const choices = pool.length > 1 ? pool.filter(c => c.id !== state.lastPick) : pool;
   const pick = choices[Math.floor(Math.random() * choices.length)];
@@ -459,6 +459,19 @@ function pickRandom() {
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   if (map && isFinite(pick.lat)) map.flyTo([pick.lat, pick.lng], 17, { duration: 0.6 });
+  // 從聊天室打開時，可以把抽到的店告訴大家
+  document.querySelectorAll('.share-pick').forEach(x => x.remove());
+  if (card && canSend()) {
+    const share = el('button', 'btn wide share-pick', '📣 告訴聊天室');
+    share.onclick = async () => {
+      try {
+        await liff.sendMessages([{ type: 'text', text: '🎲 幫大家抽到：' + pick.name + '（' + fmtDist(pick.dist) + '）' }]);
+        toast('📣 已傳到聊天室');
+      } catch (e) { toast('⚠️ 無法傳訊息：' + e.message); }
+    };
+    const btns = card.querySelector('.btns');
+    if (btns) btns.appendChild(share);
+  }
   toast('🎲 就決定是：' + pick.name + '（從 ' + pool.length + ' 間抽）');
 }
 
@@ -489,7 +502,7 @@ function main() {
   $('clearQ').onclick = () => setQuery('');
   // 三件事同時進行：叫醒 GAS、LIFF 初始化、手機定位；定位好之後等 LIFF 好了才載入
   api('ping', {}, 30000).catch(() => {});
-  state.ready = initLiff();
+  state.ready = initLiff().then(() => { if (state.random) $('title').textContent = '🎲 幫你抽一間'; });
   locate();
 }
 main();
