@@ -70,6 +70,11 @@
   .stats { font-size: 11px; color: var(--sub); text-align: center; margin-top: 16px; line-height: 1.6; white-space: pre-line; }
   .notice { background: #F3D9C2; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 10px;
     white-space: pre-line; word-break: break-word; }
+  .btn.news-btn { background: #FFF3E6; border-color: #F5C89A; color: #C0601A; }
+  .news { margin-top: 8px; border-top: 1px dashed var(--line); }
+  .news-item { display: block; padding: 8px 2px; border-bottom: 1px dashed var(--line); text-decoration: none; color: var(--text); }
+  .news-title { font-size: 13px; font-weight: 600; line-height: 1.5; }
+  .news-meta { font-size: 11px; color: var(--sub); margin-top: 2px; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -351,6 +356,20 @@ function storeCard(s) {
   addBtn(btns, '📋 菜單', '', () => open(s.menu));
   addBtn(btns, '💬 推薦', '', () => open(s.review));
   addBtn(btns, '🗺 導航', '', () => open(s.maps, true));
+  // 最近有品牌新品消息：按鈕點開新聞標題清單
+  let newsBox = null;
+  if (s.news && s.news.length) {
+    newsBox = el('div', 'news hidden');
+    s.news.forEach(n => {
+      const a = el('a', 'news-item');
+      a.appendChild(el('div', 'news-title', n.title));
+      a.appendChild(el('div', 'news-meta', n.date + '・' + (n.source || '新聞')));
+      a.onclick = e => { e.preventDefault(); open(n.link); };
+      a.href = n.link;
+      newsBox.appendChild(a);
+    });
+    addBtn(btns, '🆕 ' + s.news.length + ' 則新品消息', 'wide news-btn', () => newsBox.classList.toggle('hidden'));
+  }
   if (canSend()) {
     addBtn(btns, '👥 在這個聊天室開團', 'wide', async () => {
       try {
@@ -360,6 +379,7 @@ function storeCard(s) {
     });
   }
   c.appendChild(btns);
+  if (newsBox) c.appendChild(newsBox);
   return c;
 }
 
